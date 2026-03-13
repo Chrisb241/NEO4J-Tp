@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+<meta charset="UTF-8">
+<title>Recherche de trajets TGV</title>
+
+<style>
+
+body{
+margin:0;
+font-family:Segoe UI,Arial,sans-serif;
+background:#0f172a;
+color:#e5e7eb;
+}
+
+.wrapper{
+max-width:1200px;
+margin:auto;
+padding:30px;
+}
+
+.title{
+font-size:32px;
+font-weight:700;
+color:#38bdf8;
+margin-bottom:25px;
+}
+
+.search-card{
+background:#1e293b;
+padding:20px;
+border-radius:14px;
+margin-bottom:20px;
+}
+
+.grid{
+display:grid;
+grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+gap:15px;
+}
+
+label{
+font-size:13px;
+color:#9ca3af;
+}
+
+input{
+width:100%;
+margin-top:5px;
+padding:10px;
+border-radius:8px;
+border:none;
+background:#0f172a;
+color:white;
+}
+
+.buttons{
+margin-top:15px;
+display:flex;
+gap:10px;
+}
+
+button{
+padding:10px 18px;
+border:none;
+border-radius:8px;
+cursor:pointer;
+font-weight:600;
+}
+
+.search-btn{
+background:#22c55e;
+color:white;
+}
+
+.all-btn{
+background:#64748b;
+color:white;
+}
+
+.stats{
+display:flex;
+gap:15px;
+flex-wrap:wrap;
+margin-bottom:20px;
+}
+
+.stat{
+flex:1;
+min-width:160px;
+background:#1e293b;
+padding:15px;
+border-radius:12px;
+}
+
+.stat small{
+color:#94a3b8;
+}
+
+.stat h2{
+margin:6px 0 0;
+}
+
+table{
+width:100%;
+border-collapse:collapse;
+background:#1e293b;
+border-radius:10px;
+overflow:hidden;
+}
+
+th{
+background:#334155;
+padding:12px;
+text-align:left;
+}
+
+td{
+padding:10px;
+border-top:1px solid #334155;
+}
+
+tr:hover{
+background:#293548;
+}
+
+.message{
+margin:10px 0;
+font-weight:600;
+color:#38bdf8;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="wrapper">
+
+<div class="title">Recherche de trajets TGV</div>
+
+<div class="search-card">
+
+<div class="grid">
+
+<div>
+<label>Gare de départ</label>
+<input type="text" id="depart" list="stations" placeholder="Paris Gare de Lyon">
+</div>
+
+<div>
+<label>Gare d'arrivée</label>
+<input type="text" id="arrivee" list="stations" placeholder="Lyon Part Dieu">
+</div>
+
+<div>
+<label>Date</label>
+<input type="date" id="date">
+</div>
+
+</div>
+
+<datalist id="stations"></datalist>
+
+<div class="buttons">
+<button class="search-btn" onclick="searchTrips()">Rechercher</button>
+<button class="all-btn" onclick="showAllTrips()">Afficher tout</button>
+</div>
+
+</div>
+
+<div class="stats">
+
+<div class="stat">
+<small>Total trajets</small>
+<h2 id="totalTrips">0</h2>
+</div>
+
+<div class="stat">
+<small>Total gares</small>
+<h2 id="totalStations">0</h2>
+</div>
+
+<div class="stat">
+<small>Résultats affichés</small>
+<h2 id="shownResults">0</h2>
+</div>
+
+</div>
+
+<div class="message" id="message">Chargement des données...</div>
+
+<table>
+
+<thead>
+<tr>
+<th>Date</th>
+<th>Train</th>
+<th>Départ</th>
+<th>Heure départ</th>
+<th>Arrivée</th>
+<th>Heure arrivée</th>
+</tr>
+</thead>
+
+<tbody id="tableBody"></tbody>
+
+</table>
+
+</div>
+
+<script>
+
+let trips = [];
+let stations = [];
+
+/* parser CSV */
+
+function parseCSVLine(line){
+
+let result = [];
+let current = '';
+let insideQuotes = false;
+
+for(let i=0;i<line.length;i++){
+
+let char=line[i];
+
+if(char === '"'){
+insideQuotes = !insideQuotes;
+}
+
+else if(char === ',' && !insideQuotes){
+result.push(current.replace(/^"|"$/g,'').trim());
+current='';
+}
+
+else{
+current += char;
+}
+
+}
+
+result.push(current.replace(/^"|"$/g,'').trim());
+
+return result;
+
+}
+
+/* charger gares */
+
+async function loadStations(){
+
+let response = await fetch("gares_nodes.csv");
+let text = await response.text();
+
+let lines = text.trim().split(/\r?\n/);
+
+let stationSet = new Set();
+
+for(let i=1;i<lines.length;i++){
+
+let parts = parseCSVLine(lines[i]);
+
+if(parts.length >= 2){
+
+let stationName = parts[1].trim();   // colonne NOM
+
+stationSet.add(stationName);
+
+}
+
+}
+
+stations = [...stationSet].sort();
+
+document.getElementById("totalStations").innerText = stations.length;
+
+/* autocomplétion */
+
+let datalist = document.getElementById("stations");
+
+stations.forEach(s => {
+
+let option = document.createElement("option");
+option.value = s;
+
+datalist.appendChild(option);
+
+});
+
+}
+
+/* charger trajets */
+
+async function loadTrips(){
+
+let response = await fetch("trajets_complets.csv");
+let text = await response.text();
+
+let lines = text.trim().split(/\r?\n/);
+
+for(let i=1;i<lines.length;i++){
+
+let parts = parseCSVLine(lines[i]);
+
+if(parts.length >= 6){
+
+trips.push({
+train_no:parts[0],
+date:parts[1],
+origine:parts[2],
+destination:parts[3],
+heure_depart:parts[4],
+heure_arrivee:parts[5]
+});
+
+}
+
+}
+
+document.getElementById("totalTrips").innerText = trips.length;
+
+}
+
+/* afficher trajets */
+
+function showTrips(list){
+
+let tbody = document.getElementById("tableBody");
+
+tbody.innerHTML = "";
+
+list.forEach(t=>{
+
+let tr = document.createElement("tr");
+
+tr.innerHTML = `
+<td>${t.date}</td>
+<td>${t.train_no}</td>
+<td>${t.origine}</td>
+<td>${t.heure_depart}</td>
+<td>${t.destination}</td>
+<td>${t.heure_arrivee}</td>
+`;
+
+tbody.appendChild(tr);
+
+});
+
+document.getElementById("shownResults").innerText = list.length;
+
+}
+
+/* recherche */
+
+function normalize(text){
+return text.toLowerCase().trim();
+}
+
+function searchTrips(){
+
+let depart = normalize(document.getElementById("depart").value);
+let arrivee = normalize(document.getElementById("arrivee").value);
+let date = document.getElementById("date").value;
+
+let results = trips.filter(t=>{
+
+if(depart && !normalize(t.origine).includes(depart)) return false;
+if(arrivee && !normalize(t.destination).includes(arrivee)) return false;
+if(date && !t.date.includes(date)) return false;
+
+return true;
+
+});
+
+showTrips(results);
+
+}
+
+/* reset */
+
+function showAllTrips(){
+
+document.getElementById("depart").value="";
+document.getElementById("arrivee").value="";
+document.getElementById("date").value="";
+
+showTrips(trips);
+
+}
+
+/* recherche avec entrée */
+
+document.addEventListener("keydown",function(e){
+
+if(e.key==="Enter"){
+searchTrips();
+}
+
+});
+
+/* initialisation */
+
+async function init(){
+
+await loadStations();
+await loadTrips();
+
+showTrips(trips);
+
+document.getElementById("message").innerText="Données chargées";
+
+}
+
+init();
+
+</script>
+
+</body>
+</html>
+
